@@ -1,0 +1,84 @@
+version: '3.9'
+
+# =============================================
+# FinançasPRO — Production Docker Compose
+# Para deploy na VPS com HTTPS
+# =============================================
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: financaspro_db_prod
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    volumes:
+      - mysql_data_prod:/var/lib/mysql
+      - ./backend/src/database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - financaspro_net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    container_name: financaspro_api_prod
+    restart: always
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: ${MYSQL_DATABASE}
+      DB_USER: ${MYSQL_USER}
+      DB_PASSWORD: ${MYSQL_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
+      FRONTEND_URL: ${FRONTEND_URL}
+      N8N_WEBHOOK_URL: ${N8N_WEBHOOK_URL}
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - financaspro_net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    container_name: financaspro_web_prod
+    restart: always
+    networks:
+      - financaspro_net
+
+  nginx:
+    image: nginx:alpine
+    container_name: financaspro_nginx_prod
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro  # Certificados SSL (Let's Encrypt)
+      - certbot_webroot:/var/www/certbot
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - financaspro_net
+
+volumes:
+  mysql_data_prod:
+
+networks:
+  financaspro_net:
+    driver: bridge
